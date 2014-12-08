@@ -194,6 +194,8 @@ unsigned int segmentDisparity(const Mat &disparity, Mat &output)
 	return k;
 }
 
+//19,230   -   36, 336  panta = dx/dy = (36 -19)/(336-230) ? apropae, ai minus jos :D ok am zis din capos, cum ii la xOy
+
 void fitLineRansac(const std::vector<Point2f> points, Vec4f &line, int iterations, double sigma, double a_max)
 {
 	int n = points.size();
@@ -303,8 +305,12 @@ void detectAndTrack()
 		}
 	}
 
-     //apply a threshold
-     threshold(v_disparity,v_disparity, 60.0, THRESH_BINARY, THRESH_TOZERO);
+   float h0 = 140, p0 = 0.16;
+   float theta = - atan((v0 - h0)/alfa_v);
+
+
+    //apply a threshold
+    threshold(v_disparity,v_disparity, 60.0, THRESH_BINARY, THRESH_TOZERO);
 
 	 
 	 //add all the remaining points into a vector 
