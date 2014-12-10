@@ -149,6 +149,7 @@ void testPedestrianDetection()
 	}
 }
 
+/*returns a 8bit Grey image where each pixel represent the index of the object (0 corresponds to the background*/
 unsigned int segmentDisparity(const Mat &disparity, Mat &output)
 {
     output = Mat::zeros(disparity.size(), CV_32SC1);
@@ -240,6 +241,20 @@ void fitLineRansac(const std::vector<Point2f> points, Vec4f &line, int iteration
 	}
 }
 
+/*returns the distance from the point p1 to the line defined by normalized point-np and arbitrary point p0*/
+float lineD(Point2f &np, Point2f &p0, Point2f &p1)
+{
+	Point2f v = p1-p0;
+	return v.y*np.x - v.x*np.y;
+}
+
+/*computes the equation of a line as y = mx + b */
+float lineY(Point2f &np, Point2f &p0, float X)
+{
+	float Y = np.y*(X-p0.x)/np.x + p0.y;
+	return Y;
+}
+
 void detectAndTrack()
 {
 
@@ -247,9 +262,12 @@ void detectAndTrack()
     Mat imgLeft = imread("D:\\Master M2 Grenoble\\Autonomous Robotics\\left_250.png", 0);
 	Mat imgRight = imread("D:\\Master M2 Grenoble\\Autonomous Robotics\\right_250.png", 0);
     Mat disparity_img = Mat::zeros(imgLeft.size(), CV_16UC1);
-	Mat disparity_img_clone = Mat::zeros(disparity_img.size(), CV_32F);
+	Mat disparity_img_clone = Mat::zeros(imgLeft.size(), CV_32F);
 	Mat display_img (imgLeft.size(), CV_8UC1);
+	Mat display_img1(imgLeft.size(), CV_8UC1);
 	Mat display_img_clustering(imgLeft.size(), CV_32F);
+	Mat segmented_img(imgLeft.size(), CV_8UC1);
+	Mat segmented_img_d(imgLeft.size(), CV_8UC1);
 
    clock_t start = clock();
 	
@@ -260,7 +278,7 @@ void detectAndTrack()
    disparity_img.convertTo(disparity_img, CV_32F);
 
    
-   float u0 = 258.0, v0 = 156.0, alfa_u = 410.0, alfa_v = 410.0, b = 0.22, z0 = 1.28;
+   float u0 = 258.0, v0 = 156.0, alfa_u = 410.0, alfa_v = 410.0, b = 0.22, zs0 = 1.28;
 
    disparity_img_clone = disparity_img.clone();
 
@@ -277,7 +295,7 @@ void detectAndTrack()
           float d = value/16.0;
 		  float x = (((u - u0) * b)/d) - (b/2.0);
 		  float y = (alfa_u * b)/d;
-		  float z = z0 - ((v - v0) * alfa_u * b)/(alfa_v * d);
+		  float z = zs0 - ((v - v0) * alfa_u * b)/(alfa_v * d);
 
 		  if(z < 0.2 || z > 2.5) disparity_img.at<float>(v,u) = 0.0;
 
@@ -307,6 +325,7 @@ void detectAndTrack()
 
    float h0 = 140, p0 = 0.16;
    float theta = - atan((v0 - h0)/alfa_v);
+   float z0 = -b * cos(theta) * p0;
 
 
     //apply a threshold
@@ -317,23 +336,47 @@ void detectAndTrack()
 	 vector<Point2f> vec;
 
 	 for(int v = 0; v < v_disparity.rows; v++)   
-   {
+	{
         for(int u = 0; u < max_disparity; u++) 
 		{
 			if(v_disparity.at<float>(v,u) != 0.0) 
-				vec.push_back(Point2f(v,u));
+				vec.push_back(Point2f(u,v));
 		}
-   }
+	}
 	 
+
 	 Vec4f line;
-	 int iterations = 100;
+	 int iterations = 1000;
 	 double sigma = 1.0;
-	 double a_max = 0.0;
+	 double a_max = 7.0;
 
 	 //apply Ransac
 	 fitLineRansac(vec, line, iterations, sigma, a_max);
+     Point2f lnp;
+	 Point2f lp0;
+	 lnp.x = line[0];
+	 lnp.y = line[1];
+	 lp0.x = line[2];
+	 lp0.y = line[3];
+
+	 for(int v = 0; v < disparity_img_clone.rows; v++)   
+	{
+        for(int u = 0; u < disparity_img_clone.cols; u++) 
+		{
+			float value = disparity_img_clone.at<float>(v,u)/16;
+			float d = lineD(lnp,lp0, Point2f(value,v));
+
+			if(abs(d) >= 0.5) 
+			{
+			   disparity_img_clone.at<float>(v,u) = 0.0;
+			}
+
+		}
+
+	 }
+	
 	 
-     /*clustering in cartesian & disparity space*/
+     /*clustering in cartesian space*/
      //apply the erosion operation
      Mat erosion_img = Mat::zeros(disparity_img.size(), CV_32F);
 	 Mat dilation_img = Mat::zeros(disparity_img.size(), CV_32F);
@@ -344,31 +387,70 @@ void detectAndTrack()
                                        Point( erosion_size, erosion_size ) );
      erode(disparity_img, erosion_img, element);
 	 //apply the dilation operation
-	 dilate(erosion_img, dilation_img, element );
-	 segmentDisparity(dilation_img, display_img_clustering);
-     
-     imshow("Left Image", imgLeft);
-	 imshow("Right Image", imgRight);
+	 dilate(erosion_img, dilation_img, element);
+	 //segment the image
+	 segmentDisparity(dilation_img, segmented_img);
+	 imshow("Segmented Disparity 1", segmented_img);
+
+	 int max_label = 0;
+	 for(int v = 0; v < disparity_img_clone.rows; v++)   
+	 {
+		
+        for(int u = 0; u < disparity_img_clone.cols; u++) 
+		{
+			
+			if(segmented_img.at<unsigned int>(v, u) > max_label)
+				max_label = segmented_img.at<unsigned int>(v, u);
+		}
+		
+	 }
+
+	 printf("Max label: %d \n", max_label);
+
+	 vector<vector<int>> labeledPoints;
+
+
+
+
+    
+	 /*clustering in disparity space*/
+     Mat erosion_img_d = Mat::zeros(disparity_img.size(), CV_32F);
+	 Mat dilation_img_d = Mat::zeros(disparity_img.size(), CV_32F);
+	 //apply the erosion operation
+     erode(disparity_img_clone, erosion_img_d, element);
+	 //apply the dilation operation
+	 dilate(erosion_img_d, dilation_img_d, element);
+	 //segment the image
+	 segmentDisparity(dilation_img_d, segmented_img_d);
+	 imshow("Segmented Disparity 2", segmented_img_d);
 	 
-	 //disparity_img.convertTo(display_img, CV_8UC1);
-     //imshow("Disparity image", display_img);
-	 //dilation_img.convertTo(display_img, CV_8UC1);
-	 //imshow("Erosion + dilation image", display_img);
-	 display_img_clustering.convertTo(display_img, CV_8UC1);
-	 imshow("SegmentDisparity image", display_img);
+	 
 
+	 //imshow("Left Image", imgLeft);
+	 //imshow("Right Image", imgRight);
 
-
+	 
+	 
+	 /*
 	 Mat display_vimg(v_disparity.size(), CV_8UC1);
 	 v_disparity.convertTo(display_vimg, CV_8UC1);
-	 imshow("V-Disparity image", display_vimg);
+	 cvtColor(display_vimg,display_vimg,CV_GRAY2BGR);
+	 Point2f pp0(0,lineY(lnp,lp0,0));
+	 Point2f pp1(30,lineY(lnp,lp0,30));
+	 cv::line(display_vimg,pp0,pp1,Scalar(0,0,255),1);
+	 
+	 imshow("V-Disparity image", display_vimg);*/
+
+	 disparity_img.convertTo(display_img1, CV_8UC1);
+     imshow("Disparity image 1", display_img1);
+	
+	 disparity_img_clone.convertTo(display_img, CV_8UC1);
+	 imshow("Disparity image 2", display_img);
 
 	 clock_t end = clock();
      float seconds = (float)(end - start) / CLOCKS_PER_SEC;
 
 	 printf("Total time: %.2f",seconds);
-	
-	 cout<<CV_MAJOR_VERSION<<" "<<CV_MINOR_VERSION << " " << CV_SUBMINOR_VERSION;
 
 	 waitKey();
 	
