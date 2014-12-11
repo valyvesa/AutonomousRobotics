@@ -381,7 +381,7 @@ void detectAndTrack()
      Mat erosion_img = Mat::zeros(disparity_img.size(), CV_32F);
 	 Mat dilation_img = Mat::zeros(disparity_img.size(), CV_32F);
 	 int erosion_type = MORPH_ELLIPSE;
-	 int erosion_size = 2;
+	 int erosion_size = 4;
 	 Mat element = getStructuringElement( erosion_type,
                                        Size( 2*erosion_size + 1, 2*erosion_size+1 ),
                                        Point( erosion_size, erosion_size ) );
@@ -389,30 +389,57 @@ void detectAndTrack()
 	 //apply the dilation operation
 	 dilate(erosion_img, dilation_img, element);
 	 //segment the image
-	 segmentDisparity(dilation_img, segmented_img);
-	 imshow("Segmented Disparity 1", segmented_img);
+	 int nbObjects = segmentDisparity(dilation_img, segmented_img);
+	 //imshow("Segmented Disparity 1", segmented_img);
 
-	 int max_label = 0;
-	 for(int v = 0; v < disparity_img_clone.rows; v++)   
+	 //printf("Max label 1: %d \n", nbObjects);
+
+	 vector<vector<int>> objects(nbObjects);
+	 for (int i=0; i<nbObjects; i++) 
+	 {
+		 objects[i].resize(6);
+		 objects[i][0] = 1e10; //vmin
+		 objects[i][1] = -1e10; //vmax
+		 objects[i][2] = 1e10; //umin
+		 objects[i][3] = -1e10; //umax
+		 objects[i][4] = 0; //mean disparity
+		 objects[i][5] = 0; //size
+	 }
+	
+	 for(int v = 0; v < disparity_img.rows; v++)   
 	 {
 		
-        for(int u = 0; u < disparity_img_clone.cols; u++) 
+        for(int u = 0; u < disparity_img.cols; u++)
 		{
-			
-			if(segmented_img.at<unsigned int>(v, u) > max_label)
-				max_label = segmented_img.at<unsigned int>(v, u);
+			int label = segmented_img.at<unsigned int>(v, u);
+			if (v<objects[label][0]) objects[label][0] = v;
+			if (v>objects[label][1]) objects[label][1] = v;
+			if (u<objects[label][2]) objects[label][2] = u;
+			if (u>objects[label][3]) objects[label][3] = u;
+			objects[label][4] += disparity_img.at<float>(v,u)/16;
+			objects[label][5]++;
 		}
-		
 	 }
 
-	 printf("Max label: %d \n", max_label);
+	 Mat imgLeftC;
+	 cvtColor(imgLeft,imgLeftC,CV_GRAY2BGR);
+	 for (int i=1; i<nbObjects; i++)
+	 {
+		 if (objects[i][5]>150)
+		 {
+			 objects[i][4] /= objects[i][5];
+			 //printf("obj #%d:\n",i);
+			 //printf("v: %d - %d\n",objects[i][0],objects[i][1]);
+			 //printf("u: %d - %d\n",objects[i][2],objects[i][3]);
+			 //printf("mean disparity: %d\nsize: %d\n\n",objects[i][4],objects[i][5]);
 
-	 vector<vector<int>> labeledPoints;
+			 rectangle(imgLeftC,Point(objects[i][2],objects[i][0]),Point(objects[i][3],objects[i][1]),Scalar(0,255,0),1);
+		 }
+	 }
 
+	 imshow("Obstacle detection 1", imgLeftC);
 
-
-
-    
+      
 	 /*clustering in disparity space*/
      Mat erosion_img_d = Mat::zeros(disparity_img.size(), CV_32F);
 	 Mat dilation_img_d = Mat::zeros(disparity_img.size(), CV_32F);
@@ -421,12 +448,59 @@ void detectAndTrack()
 	 //apply the dilation operation
 	 dilate(erosion_img_d, dilation_img_d, element);
 	 //segment the image
-	 segmentDisparity(dilation_img_d, segmented_img_d);
-	 imshow("Segmented Disparity 2", segmented_img_d);
+	 int nbObjectsV = segmentDisparity(dilation_img_d, segmented_img_d);
+	 //imshow("Segmented Disparity 2", segmented_img_d);
+	 printf("Max label 2: %d \n", nbObjectsV);
 	 
+	 vector<vector<int>> objectsV(nbObjectsV);
+	 for (int i=0; i<nbObjectsV; i++) 
+	 {
+		 objectsV[i].resize(6);
+		 objectsV[i][0] = 1e10; //vmin
+		 objectsV[i][1] = -1e10; //vmax
+		 objectsV[i][2] = 1e10; //umin
+		 objectsV[i][3] = -1e10; //umax
+		 objectsV[i][4] = 0; //mean disparity
+		 objectsV[i][5] = 0; //size
+	 }
+
+	 
+	 for(int v = 0; v < disparity_img_clone.rows; v++)   
+	 {
+		
+        for(int u = 0; u < disparity_img_clone.cols; u++)
+		{
+			int labelV = segmented_img_d.at<unsigned int>(v, u);
+			if (v<objectsV[labelV][0]) objectsV[labelV][0] = v;
+			if (v>objectsV[labelV][1]) objectsV[labelV][1] = v;
+			if (u<objectsV[labelV][2]) objectsV[labelV][2] = u;
+			if (u>objectsV[labelV][3]) objectsV[labelV][3] = u;
+			objectsV[labelV][4] += disparity_img_clone.at<float>(v,u)/16;
+			objectsV[labelV][5]++;
+		}
+	 }
+
+	 
+	 Mat imgLeftC_v;
+	 cvtColor(imgLeft,imgLeftC_v,CV_GRAY2BGR);
+	 for (int i=1; i<nbObjectsV; i++)
+	 {
+		 if (objectsV[i][5]>150)
+		 {
+			 objectsV[i][4] /= objectsV[i][5];
+			 //printf("obj #%d:\n",i);
+			 //printf("v: %d - %d\n",objects[i][0],objects[i][1]);
+			 //printf("u: %d - %d\n",objects[i][2],objects[i][3]);
+			 //printf("mean disparity: %d\nsize: %d\n\n",objects[i][4],objects[i][5]);
+
+			 rectangle(imgLeftC_v,Point(objectsV[i][2],objectsV[i][0]),Point(objectsV[i][3],objectsV[i][1]),Scalar(0,255,0),1);
+		 }
+	 }
+
+	  //imshow("Obstacle detection 2", imgLeftC_v);
 	 
 
-	 //imshow("Left Image", imgLeft);
+	 imshow("Left Image", imgLeft);
 	 //imshow("Right Image", imgRight);
 
 	 
@@ -445,7 +519,7 @@ void detectAndTrack()
      imshow("Disparity image 1", display_img1);
 	
 	 disparity_img_clone.convertTo(display_img, CV_8UC1);
-	 imshow("Disparity image 2", display_img);
+	 //imshow("Disparity image 2", display_img);
 
 	 clock_t end = clock();
      float seconds = (float)(end - start) / CLOCKS_PER_SEC;
